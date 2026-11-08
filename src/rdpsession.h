@@ -23,6 +23,7 @@ public:
 
     void start();
     void prepareToClose();
+    void focusInput();
 
 private:
     enum class Phase {

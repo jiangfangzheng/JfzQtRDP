@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 
+#include "appearance.h"
 #include "captionbutton.h"
 #include "homepage.h"
 #include "rdpsession.h"
@@ -15,6 +16,7 @@
 #include <QScreen>
 #include <QSignalBlocker>
 #include <QStackedWidget>
+#include <QStringList>
 #include <QStyle>
 #include <QTabBar>
 #include <QTimer>
@@ -31,6 +33,10 @@ MainWindow::MainWindow(const AppConfig &config, const QString &configError, QWid
     setWindowIcon(style()->standardIcon(QStyle::SP_ComputerIcon));
 
     setupWindowAgent();
+
+    connect(AppearanceController::instance(), &AppearanceController::stateChanged,
+            this, &MainWindow::syncWindowAppearance);
+    syncWindowAppearance();
 
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName(QStringLiteral("MainStack"));
@@ -133,9 +139,12 @@ void MainWindow::applyInitialWindowState()
     } else {
         show();
     }
+
+    QTimer::singleShot(0, this, &MainWindow::syncWindowAppearance);
 }
 
-void MainWindow::openConnection(const ServerInfo &server, const QString &tabName)
+void MainWindow::openConnection(const ServerInfo &server, const QString &tabName,
+                                bool savedConnection)
 {
     QString name = tabName.trimmed();
     name.replace(QLatin1Char('\r'), QLatin1Char(' '));
@@ -144,11 +153,29 @@ void MainWindow::openConnection(const ServerInfo &server, const QString &tabName
         name = server.server;
     }
 
+    const QString nameKey = savedConnection
+        ? QStringLiteral("name:") + server.serverName.trimmed().toCaseFolded()
+        : QString();
+    const QString endpointKey =
+        QStringLiteral("endpoint:") + QStringList{server.server.trimmed().toCaseFolded(),
+                                                  server.userName.trimmed().toCaseFolded(),
+                                                  QString::number(server.port)}
+                                        .join(QChar(0x1F));
+
+    const int existingIndex = findExistingConnection(nameKey, endpointKey);
+    if (existingIndex >= 0) {
+        qInfo().noquote() << "RDP duplicate request:" << name
+                          << "-> switching to existing tab" << existingIndex;
+        activateTab(existingIndex);
+        return;
+    }
+
     auto *session = new RdpSession(server, m_stack);
     session->setObjectName(QStringLiteral("RdpSession"));
     m_stack->addWidget(session);
 
     const int index = m_tabBar->addTab(name);
+    m_tabBar->setTabData(index, QStringList{nameKey, endpointKey});
     m_tabBar->setTabToolTip(index, tr("服务器：%1\n账号：%2\n端口：%3\n\n"
                                       "鼠标中键点击标签页可断开连接")
                                    .arg(server.server, server.userName)
@@ -161,6 +188,44 @@ void MainWindow::openConnection(const ServerInfo &server, const QString &tabName
     QTimer::singleShot(0, session, &RdpSession::start);
 }
 
+int MainWindow::findExistingConnection(const QString &nameKey,
+                                       const QString &endpointKey) const
+{
+    for (int i = 1; i < m_tabBar->count(); ++i) {
+        const QStringList keys = m_tabBar->tabData(i).toStringList();
+        if (keys.size() < 2) {
+            continue;
+        }
+        if (!nameKey.isEmpty() && keys.at(0) == nameKey) {
+            return i;
+        }
+        if (!endpointKey.isEmpty() && keys.at(1) == endpointKey) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void MainWindow::activateTab(int index)
+{
+    if (index < 0 || index >= m_tabBar->count() || index >= m_stack->count()) {
+        return;
+    }
+
+    m_tabBar->setCurrentIndex(index);
+    m_stack->setCurrentIndex(index);
+
+    if (isMinimized()) {
+        showNormal();
+    }
+    raise();
+    activateWindow();
+
+    if (auto *session = qobject_cast<RdpSession *>(m_stack->widget(index))) {
+        session->focusInput();
+    }
+}
+
 void MainWindow::closeTab(int index)
 {
     if (index <= 0 || index >= m_tabBar->count() || index >= m_stack->count()) {
@@ -168,7 +233,12 @@ void MainWindow::closeTab(int index)
     }
 
     QWidget *page = m_stack->widget(index);
-    if (auto *session = qobject_cast<RdpSession *>(page)) {
+    auto *session = qobject_cast<RdpSession *>(page);
+    if (session && !confirmCloseTab(index)) {
+        return;
+    }
+
+    if (session) {
         session->prepareToClose();
     }
 
@@ -195,12 +265,55 @@ void MainWindow::closeTab(int index)
         m_tabBar->setCurrentIndex(newCurrent);
         m_stack->setCurrentIndex(newCurrent);
     }
+
+    m_tabBar->refreshSelectionAppearance();
+}
+
+bool MainWindow::confirmCloseTab(int index)
+{
+    const QString tabName = m_tabBar->tabText(index);
+
+    QMessageBox box(this);
+    box.setWindowTitle(tr("断开连接"));
+    box.setIcon(QMessageBox::Question);
+    box.setTextFormat(Qt::PlainText);
+    box.setText(tr("确定要断开并关闭标签页“%1”吗？").arg(tabName));
+    box.setInformativeText(tr("该远程桌面连接将被断开。"));
+
+    auto *yesButton = box.addButton(tr("是"), QMessageBox::YesRole);
+    auto *noButton = box.addButton(tr("否"), QMessageBox::NoRole);
+    box.setDefaultButton(noButton);
+    box.setEscapeButton(noButton);
+    yesButton->setAutoDefault(false);
+    noButton->setAutoDefault(true);
+
+    QTimer::singleShot(0, noButton, [noButton] {
+        noButton->setFocus(Qt::OtherFocusReason);
+    });
+
+    box.exec();
+    return box.clickedButton() == yesButton;
 }
 
 void MainWindow::updateMaximizeButton()
 {
     m_titleBar->setMaximized(isMaximized());
     m_titleBar->setMaximizeEnabled(!m_fixedSize);
+}
+
+void MainWindow::syncWindowAppearance()
+{
+    if (!m_windowAgent) {
+        return;
+    }
+
+    const bool dark = AppearanceController::instance()->isDark();
+    m_windowAgent->setWindowAttribute(QStringLiteral("dark-mode"), dark);
+    if (m_titleBar) {
+        m_titleBar->update();
+        m_tabBar->refreshSelectionAppearance();
+    }
+    update();
 }
 
 void MainWindow::ensureNotMaximizedWhenFixed()

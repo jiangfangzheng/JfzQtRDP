@@ -417,3 +417,12 @@ void RdpSession::prepareToClose()
         m_ax->dynamicCall("Disconnect()");
     }
 }
+
+void RdpSession::focusInput()
+{
+    if (m_connected && m_ax && !m_ax->isNull()) {
+        m_ax->setFocus(Qt::OtherFocusReason);
+    } else {
+        setFocus(Qt::OtherFocusReason);
+    }
+}

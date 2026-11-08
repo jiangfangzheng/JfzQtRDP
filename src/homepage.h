@@ -4,6 +4,7 @@
 
 #include <QWidget>
 
+class QComboBox;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -17,14 +18,16 @@ public:
     explicit HomePage(const AppConfig &config, QWidget *parent = nullptr);
 
 signals:
-    void connectRequested(const ServerInfo &server, const QString &tabName);
+    void connectRequested(const ServerInfo &server, const QString &tabName, bool savedConnection);
 
 private:
     QWidget *createManualGroup();
+    QWidget *createAppearanceGroup();
     QWidget *createSavedGroup();
     void connectManual();
     void connectSelected();
     void updateSelectedServer();
+    void syncAppearanceControls();
 
     AppConfig m_config;
 
@@ -33,6 +36,11 @@ private:
     QLineEdit *m_passwordEdit = nullptr;
     QSpinBox *m_portSpin = nullptr;
     QPushButton *m_linkButton = nullptr;
+
+    QWidget *m_appearanceGroup = nullptr;
+    QComboBox *m_styleCombo = nullptr;
+    QComboBox *m_themeCombo = nullptr;
+    QLabel *m_appearanceHint = nullptr;
 
     QListWidget *m_serverList = nullptr;
     QPushButton *m_savedConnectButton = nullptr;

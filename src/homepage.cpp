@@ -1,5 +1,8 @@
 #include "homepage.h"
 
+#include "appearance.h"
+
+#include <QComboBox>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -8,6 +11,7 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QVBoxLayout>
 
@@ -20,8 +24,23 @@ HomePage::HomePage(const AppConfig &config, QWidget *parent)
     auto *root = new QHBoxLayout(this);
     root->setContentsMargins(16, 16, 16, 16);
     root->setSpacing(12);
-    root->addWidget(createManualGroup(), 0, Qt::AlignTop);
+
+    auto *left = new QWidget(this);
+    left->setObjectName(QStringLiteral("HomeLeftColumn"));
+    left->setFixedWidth(500);
+    auto *leftLayout = new QVBoxLayout(left);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(12);
+    leftLayout->addWidget(createManualGroup());
+    leftLayout->addWidget(createAppearanceGroup());
+    leftLayout->addStretch(1);
+
+    root->addWidget(left, 0, Qt::AlignTop);
     root->addWidget(createSavedGroup(), 1);
+
+    connect(AppearanceController::instance(), &AppearanceController::stateChanged,
+            this, &HomePage::syncAppearanceControls);
+    syncAppearanceControls();
 }
 
 QWidget *HomePage::createManualGroup()
@@ -88,6 +107,63 @@ QWidget *HomePage::createManualGroup()
     connect(m_serverEdit, &QLineEdit::returnPressed, this, &HomePage::connectManual);
     connect(m_userEdit, &QLineEdit::returnPressed, this, &HomePage::connectManual);
     connect(m_passwordEdit, &QLineEdit::returnPressed, this, &HomePage::connectManual);
+
+    return group;
+}
+
+QWidget *HomePage::createAppearanceGroup()
+{
+    auto *group = new QGroupBox(tr("外观设置"), this);
+    group->setObjectName(QStringLiteral("AppearanceGroup"));
+    group->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+    auto *outer = new QVBoxLayout(group);
+    outer->setContentsMargins(12, 16, 12, 12);
+    outer->setSpacing(8);
+
+    auto *form = new QFormLayout;
+    form->setContentsMargins(0, 0, 0, 0);
+    form->setHorizontalSpacing(10);
+    form->setVerticalSpacing(8);
+    form->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+
+    m_styleCombo = new QComboBox(group);
+    m_styleCombo->setObjectName(QStringLiteral("StyleCombo"));
+    for (const QString &style : AppearanceController::supportedStyles()) {
+        m_styleCombo->addItem(style, style);
+    }
+
+    m_themeCombo = new QComboBox(group);
+    m_themeCombo->setObjectName(QStringLiteral("ThemeCombo"));
+    m_themeCombo->addItem(tr("随系统"), static_cast<int>(ThemeMode::System));
+    m_themeCombo->addItem(tr("明亮"), static_cast<int>(ThemeMode::Light));
+    m_themeCombo->addItem(tr("暗黑"), static_cast<int>(ThemeMode::Dark));
+
+    form->addRow(tr("样式："), m_styleCombo);
+    form->addRow(tr("主题："), m_themeCombo);
+
+    m_appearanceHint = new QLabel(group);
+    m_appearanceHint->setObjectName(QStringLiteral("AppearanceHint"));
+    m_appearanceHint->setWordWrap(true);
+    m_appearanceHint->setVisible(false);
+
+    outer->addLayout(form);
+    outer->addWidget(m_appearanceHint);
+
+    connect(m_styleCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int) {
+                const QString style = m_styleCombo->currentData().toString();
+                if (!style.isEmpty()) {
+                    AppearanceController::instance()->setStyle(style);
+                }
+            });
+    connect(m_themeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int) {
+                const auto mode =
+                    static_cast<ThemeMode>(m_themeCombo->currentData().toInt());
+                AppearanceController::instance()->setThemeMode(mode);
+            });
 
     return group;
 }
@@ -205,7 +281,7 @@ void HomePage::connectManual()
     info.password = m_passwordEdit->text();
     info.port = m_portSpin->value();
 
-    emit connectRequested(info, info.serverName);
+    emit connectRequested(info, info.serverName, false);
 }
 
 void HomePage::connectSelected()
@@ -216,7 +292,7 @@ void HomePage::connectSelected()
     }
 
     const ServerInfo info = m_config.servers.at(row);
-    emit connectRequested(info, info.serverName);
+    emit connectRequested(info, info.serverName, true);
 }
 
 void HomePage::updateSelectedServer()
@@ -237,4 +313,31 @@ void HomePage::updateSelectedServer()
     m_userValue->setText(server.userName);
     m_passwordValue->setText(server.password.isEmpty() ? tr("（空）") : server.password);
     m_portValue->setText(QString::number(server.port));
+}
+
+void HomePage::syncAppearanceControls()
+{
+    auto *appearance = AppearanceController::instance();
+
+    {
+        const QSignalBlocker styleBlocker(m_styleCombo);
+        const QSignalBlocker themeBlocker(m_themeCombo);
+
+        const int styleIndex = m_styleCombo->findData(appearance->selectedStyle());
+        if (styleIndex >= 0) {
+            m_styleCombo->setCurrentIndex(styleIndex);
+        }
+        const int themeIndex =
+            m_themeCombo->findData(static_cast<int>(appearance->themeMode()));
+        if (themeIndex >= 0) {
+            m_themeCombo->setCurrentIndex(themeIndex);
+        }
+    }
+
+    const bool fallback = appearance->isStyleFallback();
+    m_appearanceHint->setVisible(fallback);
+    m_appearanceHint->setText(
+        fallback ? tr("暗黑主题下 WindowsVista 原生控件不支持深色，"
+                     "当前实际使用 Fusion 绘制。")
+                 : QString());
 }

@@ -1,3 +1,4 @@
+#include "appearance.h"
 #include "mainwindow.h"
 #include "serverconfig.h"
 
@@ -9,7 +10,6 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QStyle>
-#include <QStyleFactory>
 
 #include <cstdio>
 
@@ -73,21 +73,18 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("JfzQtRDP"));
     QApplication::setApplicationDisplayName(QStringLiteral("Windows RDP 客户端"));
-    QApplication::setApplicationVersion(QStringLiteral("1.0.0"));
+    QApplication::setApplicationVersion(QStringLiteral("1.2.3"));
     QApplication::setOrganizationName(QStringLiteral("Jfz"));
 
     openLogFile();
     qInstallMessageHandler(messageHandler);
 
-    if (QStyleFactory::keys().contains(QStringLiteral("windows11"), Qt::CaseInsensitive)) {
-        if (QStyle *windows11Style =
-                QStyleFactory::create(QStringLiteral("windows11"))) {
-            QApplication::setStyle(windows11Style);
-        }
-    }
-
-    qInfo().noquote() << "JfzQtRDP 1.0.0 starting"
+    auto *appearance = AppearanceController::instance();
+    qInfo().noquote() << "JfzQtRDP 1.2.3 starting"
                       << "| style:" << (app.style() ? app.style()->objectName() : QString())
+                      << "| effective:" << appearance->effectiveStyle()
+                      << "| theme:" << int(appearance->themeMode())
+                      << "| dark:" << appearance->isDark()
                       << "| Qt:" << qVersion();
 
     QString configError;

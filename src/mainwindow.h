@@ -33,10 +33,15 @@ private:
     void setupWindowAgent();
     void createHomeTab();
     void applyWindowOptions();
-    void openConnection(const ServerInfo &server, const QString &tabName);
+    void openConnection(const ServerInfo &server, const QString &tabName,
+                        bool savedConnection);
+    int findExistingConnection(const QString &nameKey, const QString &endpointKey) const;
+    void activateTab(int index);
     void closeTab(int index);
+    bool confirmCloseTab(int index);
     void updateMaximizeButton();
     void ensureNotMaximizedWhenFixed();
+    void syncWindowAppearance();
     bool confirmClose();
 
     AppConfig m_config;

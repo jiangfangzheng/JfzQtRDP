@@ -3,9 +3,13 @@
 #include "captionbutton.h"
 
 #include <QApplication>
+#include <QEvent>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPaintEvent>
+#include <QPalette>
 #include <QStyle>
 
 TitleTabBar::TitleTabBar(QWidget *parent)
@@ -22,6 +26,10 @@ TitleTabBar::TitleTabBar(QWidget *parent)
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     setFixedHeight(32);
     setContextMenuPolicy(Qt::PreventContextMenu);
+
+    connect(this, &QTabBar::currentChanged, this, [this](int) {
+        refreshSelectionAppearance();
+    });
 }
 
 void TitleTabBar::mousePressEvent(QMouseEvent *event)
@@ -46,6 +54,86 @@ void TitleTabBar::mouseReleaseEvent(QMouseEvent *event)
         }
     }
     QTabBar::mouseReleaseEvent(event);
+}
+
+void TitleTabBar::paintEvent(QPaintEvent *event)
+{
+    QTabBar::paintEvent(event);
+
+    const int index = currentIndex();
+    if (index < 0) {
+        return;
+    }
+
+    const QRect tab = tabRect(index);
+    if (!tab.isValid() || tab.width() < 24) {
+        return;
+    }
+
+    QColor accent = palette().color(QPalette::Accent);
+    if (!accent.isValid()) {
+        accent = palette().color(QPalette::Highlight);
+    }
+    if (!accent.isValid()) {
+        return;
+    }
+
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(accent);
+
+    const QRectF marker(tab.left() + 6.0, tab.bottom() - 2.5,
+                        tab.width() - 12.0, 2.5);
+    painter.drawRoundedRect(marker, 1.25, 1.25);
+}
+
+void TitleTabBar::changeEvent(QEvent *event)
+{
+    QTabBar::changeEvent(event);
+    if (event->type() == QEvent::PaletteChange
+        || event->type() == QEvent::ApplicationPaletteChange
+        || event->type() == QEvent::StyleChange) {
+        refreshSelectionAppearance();
+    }
+}
+
+void TitleTabBar::tabInserted(int index)
+{
+    QTabBar::tabInserted(index);
+    refreshSelectionAppearance();
+}
+
+void TitleTabBar::tabRemoved(int index)
+{
+    QTabBar::tabRemoved(index);
+    refreshSelectionAppearance();
+}
+
+QSize TitleTabBar::tabSizeHint(int index) const
+{
+    QSize size = QTabBar::tabSizeHint(index);
+    size.setHeight(height());
+    return size;
+}
+
+void TitleTabBar::refreshSelectionAppearance()
+{
+    refreshTabTextColors();
+    update();
+}
+
+void TitleTabBar::refreshTabTextColors()
+{
+    QColor accent = palette().color(QPalette::Accent);
+    if (!accent.isValid()) {
+        accent = palette().color(QPalette::Highlight);
+    }
+
+    const int selected = currentIndex();
+    for (int i = 0; i < count(); ++i) {
+        setTabTextColor(i, i == selected ? accent : QColor());
+    }
 }
 
 TitleBar::TitleBar(QWidget *parent)
