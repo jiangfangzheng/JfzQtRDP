@@ -1,0 +1,7 @@
+*.a
+*.dll
+*.exe
+qwindowkit/
+output/
+build-qwindowkit/
+build/
